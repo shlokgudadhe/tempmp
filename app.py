@@ -127,15 +127,11 @@ class ConversationSummarizer:
             conversation_text += f"{role}: {msg['content']}\n"
         
         summary_prompt = f"""
-        Please provide a concise summary of this conversation between {username} and {bot_name}. 
-        Focus on:
-        1. Key topics discussed
-        2. Important information shared
-        3. User's mood/emotions
-        4. Any activities or requests made
-        5. Relationship dynamics
+        Please summarize the following conversation between {username} and {bot_name} concisely. 
         
-        Keep the summary under 200 words and maintain the casual, friendly tone.
+        Also:
+        - Tag any reminders, tasks, or promises as [REMINDER: specific detail]
+        - Skip greetings and small talk unless significant
         
         Conversation:
         {conversation_text}
@@ -146,7 +142,7 @@ class ConversationSummarizer:
             response = litellm.completion(
                 model="gemini/gemini-2.0-flash-001",
                 messages=[{"role": "user", "content": summary_prompt}],
-                max_tokens=250,
+                max_tokens=80,
                 temperature=0.3
             )
             return response.choices[0].message.content
@@ -166,22 +162,16 @@ class ConversationSummarizer:
         
         # Combine all chunk summaries into a session summary
         if len(chunk_summaries) > 1:
-            combined_summaries = "\n\n".join([f"Chunk {i+1}: {summary}" for i, summary in enumerate(chunk_summaries)])
+            combined_summaries = " | ".join(chunk_summaries)
             
             session_summary_prompt = f"""
-            Please create a comprehensive summary of this entire conversation session between {username} and {bot_name}.
-            The session consisted of multiple chunks. Combine these chunk summaries into a cohesive session summary.
+            Combine these conversation summaries into 1-2 sentences max (under 40 words).
             
-            Focus on:
-            1. Overall conversation flow and themes
-            2. Key developments in the conversation
-            3. User's overall mood and engagement
-            4. Important outcomes or decisions
+            Rules:
+            - Keep all [REMINDER: ...] tags exactly as they are
+            - Be extremely concise
             
-            Keep the summary under 300 words.
-            
-            Chunk Summaries:
-            {combined_summaries}
+            Summaries: {combined_summaries}
             """
             
             try:
@@ -189,13 +179,13 @@ class ConversationSummarizer:
                 response = litellm.completion(
                     model="gemini/gemini-2.0-flash-001",
                     messages=[{"role": "user", "content": session_summary_prompt}],
-                    max_tokens=350,
+                    max_tokens=60,
                     temperature=0.3
                 )
                 return response.choices[0].message.content
             except Exception as e:
                 st.error(f"Error creating session summary: {e}")
-                return f"Session summary: {len(chunk_summaries)} chunks discussed various topics"
+                return f"Session: {len(chunk_summaries)} topics discussed"
         else:
             return chunk_summaries[0] if chunk_summaries else "Empty session"
     
@@ -264,6 +254,10 @@ if "last_activity_time" not in st.session_state:
     st.session_state.last_activity_time = None
 if "current_session" not in st.session_state:
     st.session_state.current_session = None
+if "show_debug_info" not in st.session_state:
+    st.session_state.show_debug_info = False
+if "last_prompt_sent" not in st.session_state:
+    st.session_state.last_prompt_sent = ""
 
 # Initialize conversation summarizer
 summarizer = get_summarizer()
@@ -319,6 +313,13 @@ with st.sidebar:
             "total_messages": 0
         }
         st.success("New session started!")
+    
+    st.header("Debug")
+    st.session_state.show_debug_info = st.checkbox("Show API Prompt", value=st.session_state.show_debug_info)
+    
+    if st.session_state.show_debug_info and st.session_state.last_prompt_sent:
+        with st.expander("Last Prompt Sent to Gemini", expanded=True):
+            st.text_area("Full Prompt:", st.session_state.last_prompt_sent, height=300)
 
 if st.button("Say Hi"):
     st.session_state.messages.append({"role": "assistant", "content": "Oi bro! You finally clicked something haha 😂"})
@@ -383,6 +384,9 @@ if prompt := st.chat_input("What's up?"):
         for message in recent_messages:
             messages.append({"role": message["role"], "content": message["content"]})
         
+        # Store the full prompt for debugging
+        full_prompt = json.dumps(messages, indent=2)
+        st.session_state.last_prompt_sent = full_prompt
         try:
             os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
             response_generator = litellm.completion(
