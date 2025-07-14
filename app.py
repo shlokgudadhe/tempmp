@@ -8,7 +8,6 @@ import pprint
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import pickle
-
 import litellm
 
 # Set your username
@@ -209,10 +208,23 @@ class ConversationSummarizer:
         """Prepare context for Gemini API call"""
         context_parts = []
         
-        # Add earlier sessions summaries
+        # Get current date
+        from datetime import datetime
+        current_date = datetime.now().date()
+        
+        # Add earlier sessions summaries for all sessions of the current date
         if self.saved_summaries:
             context_parts.append("=== PREVIOUS SESSIONS ===")
-            for i, session in enumerate(self.saved_summaries[-3:]):  # Last 3 sessions
+            
+            # Sort sessions by start_time to ensure chronological order
+            sorted_summaries = sorted(self.saved_summaries, key=lambda x: x['start_time'])
+            
+            # Filter for sessions from today only
+            sessions_today = [session for session in sorted_summaries 
+                            if session['start_time'].date() == current_date]
+            
+            # Add all sessions from today (not just 3)
+            for i, session in enumerate(sessions_today):
                 context_parts.append(f"Session {i+1} ({session['start_time'].strftime('%Y-%m-%d %H:%M')}): {session['summary']}")
         
         # Add current session summary (completed chunks)
@@ -228,6 +240,8 @@ class ConversationSummarizer:
         full_context = "\n\n".join(context_parts)
         
         return full_context
+
+
 
 # Initialize summarizer
 @st.cache_resource
@@ -292,7 +306,17 @@ st.title("Chat with Jayden Lim 🤖")
 st.markdown("Your 22-year-old Singaporean bro. Try an activity, or just chat!")
 
 # Session info sidebar
+
+
+
 with st.sidebar:
+    # Add this to your sidebar debug section
+    st.write(f"**Total saved sessions:** {len(summarizer.saved_summaries)}")
+    current_date = datetime.now().date()
+    sessions_today = [s for s in summarizer.saved_summaries if s['start_time'].date() == current_date]
+    st.write(f"**Sessions today:** {len(sessions_today)}")
+
+    
     st.header("Session Info")
     if st.session_state.current_session:
         st.write(f"**Session started:** {st.session_state.current_session['start_time'].strftime('%Y-%m-%d %H:%M')}")
